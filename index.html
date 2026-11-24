@@ -403,9 +403,10 @@ async function finishRun(skipAsk){if(!run)return;if(run.pausedAt){run.pausedMs+=
   for(const[D,name]of EFF)if(r.best[D]&&(!before[D]||r.best[D]<before[D].ms))prs.push(name);
   if(runs.length&&r.dist>=1000&&(!before.long||r.dist>before.long.dist))prs.push('carrera más larga');
   r.prs=runs.length?prs:[];
+  const run0=run.session;
   runs.push(r);runs.sort((a,b)=>b.date-a.date);store.set(KEY,runs);endLoops();
   say(`Carrera terminada. ${spokenKm(r.dist)} en ${spokenTime(r.ms)}.${r.prs.length?' ¡Nuevo récord en '+r.prs.join(' y ')+'!':''}`);
-  renderHome();openDetail(r.id)}
+  renderHome();openDetail(r.id);setTimeout(()=>checkAdjust(r,run0),400)}
 function endLoops(){clearInterval(tickH);clearInterval(saveH);stopWatch();release();run=null;store.del(CUR);lock(false)}
 function discardRun(){endLoops();renderHome();show('home')}
 
@@ -590,6 +591,12 @@ $('#pvRecalc').onclick=async()=>{if(!plan||!(await ask('Se rehacen las sesiones 
   plan=buildPlan({race:plan.race,dist:plan.dist,pace:plan.auto?0:plan.pace,days:plan.days},plan.sessions);store.set(PKEY,plan);openPlan();toast('Plan recalculado')};
 $('#pvDel').onclick=async()=>{if(await ask('¿Borrar el plan? Tus carreras no se borran.','Borrar')){plan=null;store.del(PKEY);renderHome();show('home')}};
 
+/* aviso de ajuste del plan */
+async function checkAdjust(r,sess){if(!plan||!sess||!r.sessionId)return;const s=plan.sessions.find(x=>x.id===r.sessionId);if(!s||s.type==='race'||!nextSession())return;
+  const planned=s.steps.filter(t=>t.kind!=='rec').reduce((n,t)=>n+(t.dist||0),0);if(!planned||r.dist<planned*1.15||r.dist-planned<500)return;
+  const pred=predictPace(plan.dist),newP=!plan.auto&&isFinite(pred)&&pred<plan.pace-9?Math.round(pred/5)*5:0;
+  const ok=await ask(`Corriste ${fmtKm(r.dist)} km y el plan preveía ${fmtKm(planned)} km. Tienes más capacidad de la que suponía. ¿Ajusto las próximas sesiones?${newP?` También subiría tu ritmo objetivo a ${fmtPace(newP)} /km.`:''}`,'Ajustar plan');
+  if(!ok)return;plan=buildPlan({race:plan.race,dist:plan.dist,pace:plan.auto?0:(newP||plan.pace),days:plan.days},plan.sessions);store.set(PKEY,plan);renderPlanBox();toast('Plan ajustado')}
 /* sesión guiada durante la carrera */
 function nextStep(){const S=run.session;if(!S)return;
   if(run.si>=0){const st=S.steps[run.si];if(st&&st.kind==='work'&&S.steps.length>1&&st.dist){const p=paceOf(elapsed()-run.stepT0,run.dist-run.stepD0);if(isFinite(p))say(`Hecho, a ${shortPace(p)}.`)}}
@@ -606,7 +613,7 @@ function paintStep(){const box=$('#rStepBox');if(!run||!run.session){box.classLi
   const rem=st.dist?`faltan ${Math.max(0,Math.round(st.dist-(run.dist-run.stepD0)))} m`:fmtTime(Math.max(0,st.time*1000-(elapsed()-run.stepT0))+999);
   $('#rStep').textContent=`${st.label} · ${rem}`;$('#lStep').textContent=`${st.label} · ${rem}`;
   const nx=S[run.si+1];$('#rNext').textContent=nx?`Después: ${nx.label}${nx.dist?' '+fmtKmShort(nx.dist)+' km':' '+fmtTime(nx.time*1000)}`:'Último paso';}
-window.__app.buildPlan=buildPlan;window.__app.startRun=startRun;
+window.__app.buildPlan=buildPlan;window.__app.setPlan=p=>{plan=p;store.set(PKEY,p)};window.__app.getPlan=()=>plan;window.__app.startRun=startRun;
 
 /* ---------- controles ---------- */
 $('#startBtn').onclick=()=>startRun(null);
